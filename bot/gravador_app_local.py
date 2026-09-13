@@ -198,7 +198,7 @@ class DualRecorder:
 
             cmd = [
                 "parec",
-                f"--source={monitor_source}",
+                f"--device={monitor_source}",
                 "--format=s16le",
                 "--channels=2",
                 f"--rate={self.rate}",

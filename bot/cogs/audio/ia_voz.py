@@ -13,6 +13,7 @@ import numpy as np
 
 import sounddevice as sd
 import speech_recognition as sr
+import subprocess
 from groq import Groq
 import tempfile
 
@@ -27,28 +28,39 @@ log.setLevel(logging.DEBUG)
 # Handler p/ arquivo (rotativo, 5MB max, 3 backups)
 LOG_DIR = os.path.join(tempfile.gettempdir(), "amelia_logs")
 os.makedirs(LOG_DIR, exist_ok=True)
-fh = logging.handlers.RotatingFileHandler(
-    os.path.join(LOG_DIR, "ia_voz.log"),
-    maxBytes=5_242_880,  # 5 MB
-    backupCount=3,
-    encoding="utf-8"
-)
-fh.setLevel(logging.DEBUG)
-fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-log.addHandler(fh)
 
-# Também joga no console (stderr)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-ch.setFormatter(logging.Formatter("[A.M.E.L.I.A] %(message)s"))
-log.addHandler(ch)
+# Guard contra import duplo: o cog é importado 2x (find_spec/import_module no check
+# do projeto_bot + load_extension), o que duplicava os handlers e fazia cada linha
+# de log aparecer 2x no arquivo.
+if not log.handlers:
+    fh = logging.handlers.RotatingFileHandler(
+        os.path.join(LOG_DIR, "ia_voz.log"),
+        maxBytes=5_242_880,  # 5 MB
+        backupCount=3,
+        encoding="utf-8"
+    )
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    log.addHandler(fh)
+
+    # Também joga no console (stderr)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(logging.Formatter("[A.M.E.L.I.A] %(message)s"))
+    log.addHandler(ch)
 
 class MixedAudioSource(sr.AudioSource):
     """
     Fonte de áudio customizada para Linux que combina microfone
     e loopback do sistema (PulseAudio monitor).
     """
-    
+
+    # ─── Ganho do loopback (áudio do PC) ───
+    # O Discord costuma vir bem mais baixo que o microfone. Sem reforço,
+    # o detector de voz (energy_threshold do SpeechRecognition) nem dispara
+    # pra voz dos players. 2.5x equilibra com o mic (mesmo valor do gravador).
+    LOOPBACK_GAIN = 2.5
+
     def __init__(self):
         self.SAMPLE_RATE = 48000
         self.SAMPLE_WIDTH = 2   # 16-bit PCM
@@ -57,8 +69,6 @@ class MixedAudioSource(sr.AudioSource):
         
         self.mic_device = None       # Índice do microfone
         self.mic_channels = 0        # Canais do microfone
-        self.loopback_device = None  # Índice do monitor
-        self.loopback_channels = 0   # Canais do monitor
         
         # Filas para comunicação callback → main (sem tamanho máximo para não perder áudio durante a transcrição)
         self.mic_queue = queue.Queue(maxsize=0)
@@ -66,40 +76,50 @@ class MixedAudioSource(sr.AudioSource):
         
         self.is_recording = False
         
+        # Loopback via parec (subprocesso) — o monitor NÃO aparece no sounddevice
+        self._parec_proc = None
+        self._parec_thread = None
+        
         self._discover_devices()
         self.stream = self  # Necessário para o SpeechRecognition
     
     def _discover_devices(self):
         """
-        Encontra o microfone padrão e o monitor PulseAudio.
+        Encontra o microfone padrão via sounddevice.
+        O loopback (monitor) é resolvido separadamente, via parec/pactl.
         """
         devices = sd.query_devices()
         log.info(f"Dispositivos de áudio disponíveis ({len(devices)}):")
-        
+
+        # sd.default.device pode ser int, _InputOutputPair ou None
+        default_input_id = None
+        try:
+            d = sd.default.device
+            default_input_id = d[0] if hasattr(d, '__getitem__') else d
+        except Exception:
+            default_input_id = None
+
         for i, dev in enumerate(devices):
             name = dev['name'].lower()
-            
+
             # Microfone: dispositivo de entrada padrão
             if dev['max_input_channels'] > 0 and self.mic_device is None:
-                if 'default' in name or i == sd.default.device[0]:
+                if 'default' in name or i == default_input_id:
                     self.mic_device = i
                     self.mic_channels = min(dev['max_input_channels'], 2)  # Máximo 2 canais
                     log.info(f"  ✅ Microfone: [{i}] {dev['name']} ({self.mic_channels} canais)")
-            
-            # Loopback: monitor do PulseAudio
-            if dev['max_input_channels'] > 0 and self.loopback_device is None:
-                if 'monitor' in name:
-                    self.loopback_device = i
-                    self.loopback_channels = min(dev['max_input_channels'], 2)
-                    log.info(f"  ✅ Loopback: [{i}] {dev['name']} ({self.loopback_channels} canais)")
-        
+
+        # Fallback: qualquer dispositivo de entrada
+        if self.mic_device is None:
+            for i, dev in enumerate(devices):
+                if dev['max_input_channels'] > 0:
+                    self.mic_device = i
+                    self.mic_channels = min(dev['max_input_channels'], 2)
+                    log.warning(f"  ⚠️ Microfone (fallback): [{i}] {dev['name']}")
+                    break
+
         if self.mic_device is None:
             log.warning("⚠️ Nenhum microfone encontrado!")
-        
-        if self.loopback_device is None:
-            log.warning(
-                "⚠️ Nenhum monitor de áudio encontrado! O loopback não estará disponível."
-            )
     
     def _mix_to_mono(self, data: np.ndarray, channels: int) -> np.ndarray:
         if channels == 1:
@@ -113,14 +133,77 @@ class MixedAudioSource(sr.AudioSource):
                 self.mic_queue.put_nowait(mono.tobytes())
             except queue.Full:
                 pass
-    
-    def loopback_callback(self, indata: np.ndarray, frames: int, time_info, status):
-        if self.is_recording and indata is not None:
-            mono = self._mix_to_mono(indata, self.loopback_channels)
-            try:
-                self.loopback_queue.put_nowait(mono.tobytes())
-            except queue.Full:
-                pass
+
+    def _get_monitor_source(self):
+        """Obtém o nome da source de monitor do PipeWire/PulseAudio via pactl."""
+        try:
+            result = subprocess.run(
+                ["pactl", "list", "sources", "short"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.strip().split("\n"):
+                if "monitor" in line.lower():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return parts[1]
+        except Exception as e:
+            log.warning(f"⚠️ Erro ao buscar monitor (pactl): {e}")
+        return None
+
+    def _parec_reader(self):
+        """Thread: lê o monitor da saída via parec e alimenta loopback_queue.
+
+        Converte stereo → mono em blocos de CHUNK frames (alinhado ao mic),
+        para que read() misture as duas fontes sem dessincronizar.
+        """
+        monitor_source = self._get_monitor_source()
+        if not monitor_source:
+            log.warning("⚠️ Nenhuma source de monitor encontrada — loopback (áudio do PC) indisponível.")
+            return
+
+        log.info(f"  ✅ Loopback (monitor): {monitor_source}")
+
+        cmd = [
+            "parec",
+            f"--device={monitor_source}",
+            "--format=s16le",
+            "--channels=2",
+            f"--rate={self.SAMPLE_RATE}",
+            "--latency=20"
+        ]
+
+        try:
+            self._parec_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=self.CHUNK * 4
+            )
+        except FileNotFoundError:
+            log.error("❌ parec não encontrado! Instale: sudo apt install pulseaudio-utils")
+            self._parec_proc = None
+            return
+
+        proc = self._parec_proc
+        if proc is None or proc.stdout is None:
+            return
+
+        bytes_per_frame = 4  # s16le stereo = 4 bytes/frame
+        chunk_bytes = self.CHUNK * bytes_per_frame
+
+        try:
+            while self.is_recording and proc.poll() is None:
+                raw = proc.stdout.read(chunk_bytes)
+                if not raw:
+                    break
+                data = np.frombuffer(raw, dtype=np.int16).reshape(-1, 2)
+                mono = data.mean(axis=1).astype(np.int16)  # stereo → mono
+                try:
+                    self.loopback_queue.put(mono.tobytes())
+                except Exception:
+                    break
+        except Exception as e:
+            log.warning(f"⚠️ Erro lendo parec (loopback): {e}")
     
     def read(self, size):
         try:
@@ -141,9 +224,15 @@ class MixedAudioSource(sr.AudioSource):
         if min_len == 0:
             return b'\x00' * (self.CHUNK * self.SAMPLE_WIDTH)
         
+        # Reforça o loopback (áudio do PC) antes de misturar
+        loop_gained = np.clip(
+            loop_data[:min_len].astype(np.float32) * self.LOOPBACK_GAIN,
+            -32768, 32767
+        ).astype(np.int16)
+        
         mixed = np.clip(
             mic_data[:min_len].astype(np.int32) +
-            loop_data[:min_len].astype(np.int32),
+            loop_gained.astype(np.int32),
             -32768, 32767
         ).astype(np.int16)
         
@@ -166,16 +255,9 @@ class MixedAudioSource(sr.AudioSource):
             )
             self.mic_stream.start()
         
-        if self.loopback_device is not None:
-            self.loopback_stream = sd.InputStream(
-                device=self.loopback_device,
-                channels=self.loopback_channels,
-                samplerate=self.SAMPLE_RATE,
-                blocksize=self.CHUNK,
-                callback=self.loopback_callback,
-                dtype='int16'
-            )
-            self.loopback_stream.start()
+        # Loopback via parec (subprocesso) — sounddevice NÃO expõe o monitor
+        self._parec_thread = threading.Thread(target=self._parec_reader, daemon=True)
+        self._parec_thread.start()
         
         return self
     
@@ -186,9 +268,12 @@ class MixedAudioSource(sr.AudioSource):
             self.mic_stream.stop()
             self.mic_stream.close()
         
-        if hasattr(self, 'loopback_stream'):
-            self.loopback_stream.stop()
-            self.loopback_stream.close()
+        if self._parec_proc is not None and self._parec_proc.poll() is None:
+            self._parec_proc.terminate()
+            try:
+                self._parec_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._parec_proc.kill()
         
         while not self.mic_queue.empty():
             self.mic_queue.get()
@@ -393,7 +478,12 @@ class IAVoz(commands.Cog):
         """Carrega APENAS o Whisper (rápido, ~5s)."""
         if not self.transcricao.modelo_carregado:
             ok = self.transcricao.carregar_modelo()
-            if not ok:
+            if ok:
+                log.info(
+                    f"✅ Whisper carregado: {self.transcricao.modelo_nome} "
+                    f"({self.transcricao.modelo_device}/{self.transcricao.modelo_compute})"
+                )
+            else:
                 log.warning("Whisper não carregado — fallback Google STT.")
             return ok
         return True
@@ -817,14 +907,14 @@ class IAVoz(commands.Cog):
             groq_error = [None]  # mutable container for thread error
             
             t0 = time.time()
-            log.info("Enviando para Groq Llama 3.3-70B (streaming)...")
+            log.info("Enviando para Groq Qwen 3.8-27B (streaming)...")
             
             def _groq_producer():
                 """Thread: streaming Groq → sentenças na fila conforme detectadas."""
                 buffer = ""
                 try:
                     stream = self.groq_client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
+                        model="qwen/qwen3.8-27b",
                         messages=[
                             {"role": "system", "content": self.system_instruction + instrucao_dinamica},
                             {"role": "user", "content": texto}

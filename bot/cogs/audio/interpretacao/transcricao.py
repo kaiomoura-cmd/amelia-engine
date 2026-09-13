@@ -33,8 +33,8 @@ class Transcricao:
 
     # ═══ CONSTANTES ═══
     WHISPER_LANG = "pt"
-    BEAM_SIZE = 4                # Aumentado para 4: melhora a qualidade da interpretação
-    TEMPERATURES = [0.0]         # 0.0 = Apenas uma tentativa, evita o delay colossal de tentar dnv
+    BEAM_SIZE = 5                # 5: melhor precisão (era 4)
+    TEMPERATURES = [0.0, 0.2, 0.4]  # Multi-passagem (opção B): melhora precisão em áudio ruidoso
     TIMEOUT_SEGUNDOS = 30        # Limite máximo para inferência do Whisper
 
     # Vocabulário que guia o Whisper (initial_prompt). O padrão é genérico de RPG;
@@ -57,6 +57,8 @@ class Transcricao:
     def __init__(self):
         self.modelo = None         # WhisperModel — lazy load
         self.modelo_nome = None    # "medium" ou "small" — pra log
+        self.modelo_device = None  # "cuda" ou "cpu"
+        self.modelo_compute = None # "float16" ou "int8"
         self.modelo_carregado = False
 
     # ────────────────────────────────────────────────
@@ -111,6 +113,8 @@ class Transcricao:
                 dt = time.perf_counter() - t_carga
                 log.info(f"Whisper {nome} carregado em {dt:.1f}s ({device})")
                 self.modelo_nome = nome
+                self.modelo_device = device
+                self.modelo_compute = compute
                 self.modelo_carregado = True
                 return True
             except Exception as e:
@@ -166,7 +170,7 @@ class Transcricao:
                 vad_parameters=self.VAD_PARAMS,
                 no_speech_threshold=0.4,
                 compression_ratio_threshold=2.4,
-                condition_on_previous_text=True,
+                condition_on_previous_text=False,
                 log_prob_threshold=-1.0,
                 word_timestamps=False,
             )
