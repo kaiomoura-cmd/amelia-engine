@@ -7,6 +7,8 @@ jogadores e o mestre, e responde como um NPC — com voz própria, sintetizada n
 É um **pipeline de voz em tempo real** com modelos de ML rodando em GPU,
 arquitetura de workers por processo e medições reproduzíveis.
 
+Algumas informações podem estar desatualizadas, ja que faço melhorias constantes na engine
+
 | | |
 |---|---|
 | **Primeiro áudio da resposta** | **~0,4 s** — e **constante**, independente do tamanho do texto |
