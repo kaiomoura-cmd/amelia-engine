@@ -1,0 +1,31 @@
+# ── Ambientes virtuais ────────────────────────────────────────
+venv/
+venv_linux/
+.venv/
+.venv_*/
+
+# ── Segredos e estado local (NUNCA versionar) ─────────────────
+.env
+cookies.txt
+*.pid
+bot/playlists.json
+
+# ── Material pessoal (voz + persona da campanha) ──────────────
+# A amostra de voz de referência é pessoal — quem clonar, grava a própria.
+# O lore_amelia.md real contém o contexto da campanha; o motor gera um
+# genérico sozinho se o arquivo não existir.
+bot/cogs/audio/amelia_voice_ref.wav
+bot/cogs/audio/lore_amelia.md
+
+# ── Áudio de benchmark (gravações de sessão reais + saída TTS) ─
+benchmarks/audio/
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ── SO / editores ─────────────────────────────────────────────
+.DS_Store
+.obsidian/
+*.swp

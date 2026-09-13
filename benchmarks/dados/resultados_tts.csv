@@ -1,0 +1,7 @@
+modo,texto,caracteres,repeticoes,mediana_ms,p95_ms,min_ms,max_ms,ttfa_ms,chunks
+arquivo,curto,55,2,2072.6,2138.1,2007.1,2138.1,,
+stream,curto,55,2,374.4,404.2,344.6,404.2,374.4,6
+arquivo,medio,257,2,7825.1,7977.2,7672.9,7977.2,,
+stream,medio,257,2,403.8,420.9,386.8,420.9,403.8,17
+arquivo,longo,513,2,14976.5,15288.9,14664.1,15288.9,,
+stream,longo,513,2,372.5,376.1,368.9,376.1,372.5,30

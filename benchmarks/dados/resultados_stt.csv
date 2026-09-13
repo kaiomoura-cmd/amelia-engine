@@ -1,0 +1,10 @@
+modelo,dispositivo,precisao,amostra,duracao_audio_s,duracao_fala_s,carga_modelo_s,repeticoes,mediana_ms,p95_ms,min_ms,max_ms,rtf,rtf_fala,caracteres_transcritos
+tiny,cuda,int8,teste_curto.wav,12.0,9.7,0.68,3,543.1,544.5,538.2,544.5,0.04525,0.05601,683
+tiny,cuda,int8,teste_medio.wav,60.0,37.12,0.68,3,534.3,537.8,494.8,537.8,0.00891,0.01439,306
+tiny,cuda,int8,teste_longo.wav,300.0,200.51,0.68,3,2728.9,2740.0,2686.5,2740.0,0.0091,0.01361,2278
+small,cuda,float16,teste_curto.wav,12.0,9.7,1.32,3,279.3,314.5,277.1,314.5,0.02328,0.02881,68
+small,cuda,float16,teste_medio.wav,60.0,37.12,1.32,3,705.0,712.5,698.1,712.5,0.01175,0.01899,323
+small,cuda,float16,teste_longo.wav,300.0,200.51,1.32,3,3893.5,4190.1,3891.7,4190.1,0.01298,0.01942,2155
+medium,cuda,float16,teste_curto.wav,12.0,9.7,3.99,3,433.9,469.4,433.8,469.4,0.03616,0.04475,82
+medium,cuda,float16,teste_medio.wav,60.0,37.12,3.99,3,1236.7,1260.2,1220.2,1260.2,0.02061,0.03332,330
+medium,cuda,float16,teste_longo.wav,300.0,200.51,3.99,3,8159.8,8220.9,8094.8,8220.9,0.0272,0.04069,2341

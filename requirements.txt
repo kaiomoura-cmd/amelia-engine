@@ -1,0 +1,37 @@
+# ═══════════════════════════════════════════════════════════════
+#  A.M.E.L.I.A. Engine — dependências
+# ═══════════════════════════════════════════════════════════════
+#  A parte de interpretação (STT + TTS) recomenda GPU NVIDIA com CUDA 12.1.
+#  Sem GPU funciona, mas muito mais devagar.
+#
+#  Para instalar o torch com CUDA 12.1, use o índice da PyTorch:
+#    pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+#
+#  Para rodar só o bot (sem STT/TTS), instale apenas o bloco "Core".
+# ═══════════════════════════════════════════════════════════════
+
+# ── Core (bot Discord + utilitários) ──────────────────────────
+py-cord[voice]>=2.0
+python-dotenv>=1.0
+groq>=0.4
+yt-dlp>=2024.0
+psutil>=5.0
+imageio-ffmpeg>=0.4
+Pillow>=10.0
+cryptography>=40.0
+markdown>=3.0
+playwright>=1.30
+sounddevice>=0.4
+soundfile>=0.12
+requests>=2.28
+aiohttp>=3.8
+
+# ── Interpretação (STT + TTS) — versões do projeto ────────────
+numpy==2.4.3
+scipy==1.17.1
+torch==2.5.1+cu121
+torchaudio==2.5.1+cu121
+faster-whisper==1.2.1
+ctranslate2==4.7.1
+coqui-tts==0.27.5
+transformers==4.57.6

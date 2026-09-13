@@ -1,0 +1,16 @@
+# Copie este arquivo para `.env` e preencha os valores.
+#   cp exemplo_env.txt .env
+# O `.env` NUNCA deve ser versionado (já está no .gitignore).
+
+# Token do bot principal — Discord Developer Portal → sua aplicação → Bot → Token
+DISCORD_BOT_TOKEN=
+
+# Token do bot auxiliar "caixa de som" (opcional — só se for usar música/YouTube)
+CAIXA_DE_SOM_TOKEN=
+
+# Chave da API Groq (LLM que gera as respostas) — https://console.groq.com/keys
+GROQ_API_KEY=
+
+# Vocabulário que ajuda o Whisper a acertar nomes próprios da SUA campanha.
+# Sem isto, o motor usa um vocabulário genérico de RPG. Separe por vírgulas.
+# AMELIA_PROMPT_CONTEXTUAL=
