@@ -4,7 +4,7 @@ Motor de áudio que **ouve a mesa, transcreve, conversa e responde com voz gerad
 Construído para uma campanha de RPG que roda em Discord: o bot entra no canal de voz, escuta os
 jogadores e o mestre, e responde como um NPC — com voz própria, sintetizada na máquina.
 
-Não é um chatbot de texto. É um **pipeline de voz em tempo real** com modelos de ML rodando em GPU,
+É um **pipeline de voz em tempo real** com modelos de ML rodando em GPU,
 arquitetura de workers por processo e medições reproduzíveis.
 
 | | |
