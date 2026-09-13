@@ -146,51 +146,6 @@ pipeline porque não foram medidas:
 - **Impacto do `pause_threshold`** (1,0 → 0,7 s) — o ganho de ~0,3 s é **cálculo de
   configuração**, não latência medida ponta a ponta
 
-## Dois bugs que o benchmark encontrou
-
-Medir não é vaidade: os dois achados abaixo **não apareceram no uso normal** e os dois degradavam o
-sistema em silêncio.
-
-### 1. O streaming falhava em qualquer resposta com mais de uma frase
-
-```json
-{"status": "error", "error": "enable_text_splitting=True requires Spacy: pip install spacy[ja]"}
-```
-
-O TTS tem um splitter de sentenças interno que exige SpaCy. Com a dependência ausente, **qualquer
-texto com mais de uma frase fazia a requisição inteira falhar** — e o app caía silenciosamente para
-o modo arquivo, pagando ~15 s onde poderia pagar ~0,4 s.
-
-Como a divisão em sentenças já é feita na camada de cima, o splitter interno era uma camada
-redundante que virou ponto de falha. Desativá-lo destravou o streaming em qualquer tamanho:
-
-| Antes | Depois |
-|---|---|
-| streaming falha em 2+ frases → cai pro modo arquivo (~7,8 s) | streaming entrega o primeiro áudio em **0,40 s** |
-
-### 2. O fallback do modelo "ultra-leve" devolvia alucinação
-
-A cadeia de fallback da transcrição descia até o modelo `tiny` antes de tentar a CPU. O problema:
-**o `tiny` não falha — ele "funciona" e devolve lixo.**
-
-| Configuração | Inferência (12 s de áudio) | Texto produzido | Maior repetição de palavra |
-|---|---|---|---|
-| `small`/GPU/float16 | 284 ms | 71 caracteres corretos | 2× |
-| `tiny`/GPU/int8 | 708 ms | **1.037 caracteres de loop** | **74×** |
-| `small`/CPU/int8 | 4.214 ms | 71 caracteres corretos | 2× |
-
-O texto do `tiny` foi literalmente *"é um pouco mais um pouco mais um pouco mais..."* — repetido até
-estourar o buffer. Como ele não levanta exceção, a cadeia **parava nele** e nunca alcançava o
-fallback de CPU, que era o correto.
-
-A correção foi **reordenar a cadeia**: CPU (lenta e correta) antes de `tiny` (rápido e não
-confiável). O `tiny` fica como último recurso, para máquinas com VRAM mínima.
-
-> Ainda em aberto: uma **guarda de repetição** que detecte o loop e tente a próxima configuração
-> automaticamente — melhor que escolher entre lento e errado.
-
-Os dois casos estão documentados em [`benchmarks/METODOLOGIA.md`](benchmarks/METODOLOGIA.md).
-
 ## Estado do projeto e roadmap
 
 O que está pronto (a coluna *medido* aponta o que tem benchmark neste repo):
@@ -221,11 +176,11 @@ resposta.
 
 A arquitetura já foi pensada para isso: o pipeline é **modular** (captura → STT → LLM → TTS, cada
 camada isolada num worker com protocolo definido). Adicionar memória é encaixar **mais uma camada**
-nesse fluxo, não reescrevê-lo. O motor é a base; o agente é o destino.
+nesse fluxo.
 
 ## Requisitos
 
-- **GPU NVIDIA** com ~4 GB de VRAM livre (o modelo cabe em 8 GB com folga)
+- **GPU NVIDIA** com ~5 GB de VRAM livre (o modelo cabe em 8 GB com folga)
 - Linux (testado em Ubuntu 24.04)
 - Python 3.12, `faster-whisper`, `coqui-tts`, `py-cord`
 - Um canal de voz no Discord e uma **amostra de voz de referência** (~1 MB de áudio limpo) para o
